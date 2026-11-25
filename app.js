@@ -1,7 +1,7 @@
 /* Liguria Hills one-page landing: behaviour.
  * Everything on the page is readable without this file; it adds filtering,
  * the pinned pictures, the gallery viewer, tabs, the map categories,
- * the lead forms (inline and popup) and the cookie consent. */
+ * the lead forms (inline and popup) and the Meta pixel. */
 (() => {
   'use strict';
 
@@ -375,8 +375,7 @@
   const supabaseOn = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
   const configured = hubspotOn || supabaseOn;
   forms.forEach((f) => { f.dataset.endpoint = [hubspotOn && 'hubspot', supabaseOn && 'supabase:submit_lead'].filter(Boolean).join(' '); });
-  // A local copy never loads the trackers. The GitHub Pages site is live: the
-  // pixel loads there after cookie consent.
+  // A local copy never loads the trackers; every other host loads the pixel on page load.
   const LOCAL_HOST = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   const PAGES_HOST = /\.github\.io$/.test(location.hostname);
   // Preview mode: while no backend is connected, the forms play the whole flow
@@ -660,9 +659,9 @@
     modal.addEventListener('close', () => document.body.classList.remove('is-modal'));
   }
 
-  /* ---------- consent, then Google Tag Manager and the Meta pixel ---------- */
-  const KEY = 'lh-consent';
-  const bar = $('[data-consent]');
+  /* ---------- Google Tag Manager and the Meta pixel ----------
+   * Loaded straight away on page load, with no cookie banner: the owner's choice
+   * on 25.11.2026 (before that the pixel waited for consent in a cookie bar). */
   let trackersOn = false;
   function loadTrackers() {
     // a local copy never loads GTM or the pixel: no test visits in the ad stats
@@ -687,21 +686,9 @@
   }
   // Lead fires for every form on the page (inline and popup), only after the CRM accepted the lead
   function track(id, p) {
-    if (store.get(KEY) !== 'granted') return;
     const what = { content_name: p._source_page.replace(/^landing:/, ''), content_category: p._intent };
     if (window.fbq) window.fbq('track', 'Lead', what, { eventID: 'lead_' + id });
     if (window.dataLayer) window.dataLayer.push({ event: 'generate_lead', lead_id: id, lead_form: what.content_name, lead_intent: what.content_category });
   }
-  function decide(v) {
-    store.set(KEY, v);
-    if (bar) bar.hidden = true;
-    if (v === 'granted') loadTrackers();
-  }
-  if (bar) {
-    const v = store.get(KEY);
-    if (v === 'granted') loadTrackers();
-    else if (v !== 'denied') bar.hidden = false;
-    $$('[data-consent-choice]', bar).forEach((b) => b.addEventListener('click', () => decide(b.dataset.consentChoice)));
-    $$('[data-consent-open]').forEach((b) => b.addEventListener('click', () => { bar.hidden = false; $('[data-consent-choice]', bar).focus(); }));
-  }
+  loadTrackers();
 })();
