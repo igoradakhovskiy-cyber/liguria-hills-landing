@@ -8,15 +8,20 @@
   /* ---------------------------------------------------------------
    * CONFIG: fill these in before going live. Leave empty to keep the
    * forms honest: without a backend they send nothing and say so.
-   * The current site posts leads to Supabase (rpc "submit_lead", then the
-   * edge function "forward-lead-to-n8n"); the values live in that project.
+   * Leads go to HubSpot through its public Forms API (no secret key in the
+   * page): a legacy-editor form with the fields firstname, lastname, email,
+   * phone, message. Supabase (the old site's "submit_lead" + n8n) is optional;
+   * if both are filled in, every lead goes to both.
    * ------------------------------------------------------------- */
   const CONFIG = {
-    supabaseUrl: '',            // e.g. https://<project>.supabase.co
+    hubspotPortalId: '',        // Hub ID, the number in app.hubspot.com/forms/<Hub ID>/...
+    hubspotFormId: '',          // form GUID, the long id in the form editor address
+    hubspotRegion: '',          // 'eu1' if HubSpot opens at app-eu1.hubspot.com, else empty
+    supabaseUrl: '',            // optional: e.g. https://<project>.supabase.co
     supabaseAnonKey: '',        // the project's public anon key
     thankYouUrl: '',            // optional: e.g. /{lang}/grazie, if ads optimise on that page
-    gtmId: 'GTM-PMM7XJZF',      // Google Tag Manager container of the current site
-    metaPixelId: '1417462080400139',
+    gtmId: 'GTM-PMM7XJZF',      // Google Tag Manager container of the old liguria-hills.it site
+    metaPixelId: '1854225385777771',
   };
 
   /* ---------------------------------------------------------------
@@ -365,14 +370,18 @@
 
   /* ---------- the lead forms ---------- */
   const forms = $$('form.leadcard');
-  const configured = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
-  forms.forEach((f) => { f.dataset.endpoint = configured ? 'supabase:submit_lead' : ''; });
-  // Preview mode: while the backend is not connected, the forms play the whole
-  // flow on a local copy, on the GitHub Pages preview (*.github.io) or with ?demo
-  // in the address, without sending anything. On a live domain without keys they
-  // still say plainly that nothing was sent.
-  const PREVIEW_HOST = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || /\.github\.io$/.test(location.hostname);
-  const DEMO = !configured && (PREVIEW_HOST || new URLSearchParams(location.search).has('demo'));
+  const hubspotOn = Boolean(CONFIG.hubspotPortalId && CONFIG.hubspotFormId);
+  const supabaseOn = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
+  const configured = hubspotOn || supabaseOn;
+  forms.forEach((f) => { f.dataset.endpoint = [hubspotOn && 'hubspot', supabaseOn && 'supabase:submit_lead'].filter(Boolean).join(' '); });
+  // A local copy never loads the trackers. The GitHub Pages site is live: the
+  // pixel loads there after cookie consent.
+  const LOCAL_HOST = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  const PAGES_HOST = /\.github\.io$/.test(location.hostname);
+  // Preview mode: while no backend is connected, the forms play the whole flow
+  // on a local copy, on *.github.io or with ?demo in the address, without sending
+  // anything. On any other domain without keys they say plainly that nothing was sent.
+  const DEMO = !configured && (LOCAL_HOST || PAGES_HOST || new URLSearchParams(location.search).has('demo'));
 
   function setHelp(input, text) {
     const help = document.getElementById(input.id + '-help');
@@ -389,6 +398,87 @@
     if (typeof id !== 'string' || !id) throw new Error('no lead id');
     fetch(base + '/functions/v1/forward-lead-to-n8n', { method: 'POST', headers: h, body: JSON.stringify({ lead_id: id }) }).catch(() => {});
     return id;
+  }
+
+  /* HubSpot: the public form-submission endpoint (CORS, no key). The text of
+   * the lead (what was asked, which form, language, UTM tags, consents) goes
+   * into the standard contact property "message", so the CRM form needs no
+   * custom properties. */
+  const HS_HOST = { na: 'https://api.hsforms.com', eu1: 'https://api-eu1.hsforms.com' };
+  function readCookie(name) {
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function leadNote(p) {
+    const q = new URLSearchParams(location.search);
+    const utm = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']
+      .filter((k) => q.get(k)).map((k) => k.slice(4) + '=' + q.get(k)).join(', ');
+    return [
+      'Request: ' + p._intent + (p._unit_id ? ', unit ' + p._unit_id : ''),
+      'Form: ' + p._source_page.replace(/^landing:/, ''),
+      'Language: ' + p._locale,
+      'Page: ' + location.origin + location.pathname,
+      utm && 'UTM: ' + utm,
+      q.get('fbclid') && 'Click from Meta Ads (fbclid)',
+      p._referrer && 'Referrer: ' + p._referrer.slice(0, 300),
+      'Privacy consent: yes. Marketing consent: ' + (p._marketing_consent ? 'yes' : 'no'),
+    ].filter(Boolean).join('\n');
+  }
+  async function postHubspot(p, consentText) {
+    const words = p._name.split(/\s+/);
+    const fields = { firstname: words[0], lastname: words.slice(1).join(' '), email: p._email, phone: p._phone, message: leadNote(p) };
+    let legal = consentText ? { consent: { consentToProcess: true, text: consentText.slice(0, 1000) } } : null;
+    const hutk = readCookie('hubspotutk');
+    const hosts = CONFIG.hubspotRegion === 'eu1' ? [HS_HOST.eu1, HS_HOST.na] : [HS_HOST.na, HS_HOST.eu1];
+    let host = 0;
+    const url = () => hosts[host] + '/submissions/v3/integration/submit/' + encodeURIComponent(CONFIG.hubspotPortalId) + '/' + encodeURIComponent(CONFIG.hubspotFormId);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const body = {
+        submittedAt: String(Date.now()),
+        fields: Object.entries(fields).filter(([, v]) => v).map(([name, value]) => ({ objectTypeId: '0-1', name, value: String(value) })),
+        context: Object.assign({ pageUri: location.href.slice(0, 1500), pageName: document.title.slice(0, 200) }, hutk ? { hutk } : {}),
+      };
+      if (legal) body.legalConsentOptions = legal;
+      const r = await fetch(url(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) return '';
+      // a portal in the other data centre answers 404 on this host: try the other one once
+      if (r.status === 404 && host === 0) { host = 1; continue; }
+      const info = await r.json().catch(() => ({}));
+      if (r.status !== 400) throw new Error('HubSpot ' + r.status + ' ' + (info.message || ''));
+      // the CRM form lacks a field we send, or has no consent options: drop that part and resend,
+      // keeping a dropped value inside the message so nothing the visitor typed is lost
+      let changed = false;
+      (info.errors || []).forEach((e) => {
+        const t = e.errorType || '';
+        const m = /fields\.(\w+)/.exec(e.message || '') || /Field '(\w+)'/.exec(e.message || '');
+        const n = m && m[1];
+        if (t === 'FIELD_NOT_IN_FORM_DEFINITION' && n && n !== 'email' && n in fields) {
+          if (n === 'lastname') fields.firstname = p._name;
+          else if (n !== 'message' && fields.message) fields.message += '\n' + n + ': ' + fields[n];
+          delete fields[n]; changed = true;
+        } else if (legal && /LEGAL/.test(t)) { legal = null; changed = true; }
+      });
+      if (!changed) throw new Error('HubSpot 400 ' + (info.errors || []).map((e) => e.errorType + ': ' + e.message).join('; '));
+    }
+    throw new Error('HubSpot: gave up after retries');
+  }
+
+  function newLeadId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+  // every configured destination gets the lead; it counts as sent if at least one accepted it
+  async function sendLead(p, form) {
+    const label = form.querySelector('input[name="consent"]').closest('label');
+    const consentText = label ? label.textContent.replace(/\s+/g, ' ').replace(/^\*\s*/, '').trim() : '';
+    const jobs = [];
+    if (hubspotOn) jobs.push(postHubspot(p, consentText));
+    if (supabaseOn) jobs.push(postLead(p));
+    const res = await Promise.allSettled(jobs);
+    res.filter((r) => r.status === 'rejected').forEach((r) => console.warn('[Liguria Hills] lead not delivered:', r.reason));
+    const ok = res.filter((r) => r.status === 'fulfilled');
+    if (!ok.length) throw new Error('no destination accepted the lead');
+    return ok.map((r) => r.value).find((v) => typeof v === 'string' && v) || newLeadId();
   }
 
   /* the thank-you state: what the visitor sent and what happens next */
@@ -492,10 +582,14 @@
           showDone(form, payload, kind, true);
           return;
         }
-        const id = await postLead(payload);
+        const id = await sendLead(payload, form);
         clearTimeout(slow);
-        track(id);
-        if (CONFIG.thankYouUrl) { location.href = CONFIG.thankYouUrl.replace('{lang}', LANG); return; }
+        track(id, payload);
+        if (CONFIG.thankYouUrl) {
+          // give the pixel a moment to send Lead before the page changes
+          setTimeout(() => { location.href = CONFIG.thankYouUrl.replace('{lang}', LANG); }, 400);
+          return;
+        }
         say('');
         showDone(form, payload, kind, false);
       } catch {
@@ -550,9 +644,10 @@
   const bar = $('[data-consent]');
   let trackersOn = false;
   function loadTrackers() {
-    // previews (local copy, GitHub Pages) never load GTM or the pixel: no test visits in the ad stats
-    if (trackersOn || PREVIEW_HOST) return; trackersOn = true;
-    if (CONFIG.gtmId) {
+    // a local copy never loads GTM or the pixel: no test visits in the ad stats
+    if (trackersOn || LOCAL_HOST) return; trackersOn = true;
+    // GTM is the old liguria-hills.it container: it stays off on the GitHub Pages copy
+    if (CONFIG.gtmId && !PAGES_HOST) {
       window.dataLayer = window.dataLayer || [];
       window.dataLayer.push({ 'gtm.start': Date.now(), event: 'gtm.js' });
       const s = document.createElement('script'); s.async = true;
@@ -569,10 +664,12 @@
       window.fbq('track', 'PageView');
     }
   }
-  function track(id) {
+  // Lead fires for every form on the page (inline and popup), only after the CRM accepted the lead
+  function track(id, p) {
     if (store.get(KEY) !== 'granted') return;
-    if (window.fbq) window.fbq('track', 'Lead', {}, { eventID: 'lead_' + id });
-    if (window.dataLayer) window.dataLayer.push({ event: 'generate_lead', lead_id: id });
+    const what = { content_name: p._source_page.replace(/^landing:/, ''), content_category: p._intent };
+    if (window.fbq) window.fbq('track', 'Lead', what, { eventID: 'lead_' + id });
+    if (window.dataLayer) window.dataLayer.push({ event: 'generate_lead', lead_id: id, lead_form: what.content_name, lead_intent: what.content_category });
   }
   function decide(v) {
     store.set(KEY, v);
