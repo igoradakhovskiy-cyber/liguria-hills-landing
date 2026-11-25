@@ -21,7 +21,7 @@
     supabaseUrl: '',            // optional: e.g. https://<project>.supabase.co
     supabaseAnonKey: '',        // the project's public anon key
     thankYouUrl: '',            // optional: e.g. /{lang}/grazie, if ads optimise on that page
-    gtmId: 'GTM-PMM7XJZF',      // Google Tag Manager container of the old liguria-hills.it site
+    gtmId: '',                  // off since the move to Cloudflare (25.11.2026): GTM-PMM7XJZF is the old liguria-hills.it container and may carry its old pixel
     metaPixelId: '1854225385777771',
   };
 
