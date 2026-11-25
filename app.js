@@ -409,10 +409,15 @@
     const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
+  const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+  // the language switcher keeps the ad's UTM tags and fbclid, so a visitor who changes
+  // language still arrives in the CRM with the campaign that brought them
+  if (/[?&](utm_|fbclid=)/.test(location.search)) {
+    $$('a[data-lang]').forEach((a) => { a.href = a.getAttribute('href').split('?')[0] + location.search; });
+  }
   function leadNote(p) {
     const q = new URLSearchParams(location.search);
-    const utm = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']
-      .filter((k) => q.get(k)).map((k) => k.slice(4) + '=' + q.get(k)).join(', ');
+    const utm = UTM_KEYS.filter((k) => q.get(k)).map((k) => k.slice(4) + '=' + q.get(k)).join(', ');
     return [
       'Request: ' + p._intent + (p._unit_id ? ', unit ' + p._unit_id : ''),
       'Form: ' + p._source_page.replace(/^landing:/, ''),
@@ -427,12 +432,18 @@
   async function postHubspot(p, consentText) {
     const words = p._name.split(/\s+/);
     const fields = { firstname: words[0], lastname: words.slice(1).join(' '), email: p._email, phone: p._phone, message: leadNote(p) };
+    // separate contact properties for filters and reports in HubSpot (custom, created by the
+    // CRM admin): the chosen unit, the kind of request, the page language, the UTM tags.
+    // Any of them missing from the HubSpot form is dropped on resend; it stays in "message".
+    Object.assign(fields, { liguria_unit: p._unit_id, liguria_request: p._intent, liguria_language: p._locale });
+    const q = new URLSearchParams(location.search);
+    UTM_KEYS.forEach((k) => { if (q.get(k)) fields[k] = q.get(k).slice(0, 250); });
     let legal = consentText ? { consent: { consentToProcess: true, text: consentText.slice(0, 1000) } } : null;
     const hutk = readCookie('hubspotutk');
     const hosts = CONFIG.hubspotRegion === 'eu1' ? [HS_HOST.eu1, HS_HOST.na] : [HS_HOST.na, HS_HOST.eu1];
     let host = 0;
     const url = () => hosts[host] + '/submissions/v3/integration/submit/' + encodeURIComponent(CONFIG.hubspotPortalId) + '/' + encodeURIComponent(CONFIG.hubspotFormId);
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 15; attempt++) {
       const body = {
         submittedAt: String(Date.now()),
         fields: Object.entries(fields).filter(([, v]) => v).map(([name, value]) => ({ objectTypeId: '0-1', name, value: String(value) })),
@@ -454,7 +465,7 @@
         const n = m && m[1];
         if (t === 'FIELD_NOT_IN_FORM_DEFINITION' && n && n !== 'email' && n in fields) {
           if (n === 'lastname') fields.firstname = p._name;
-          else if (n !== 'message' && fields.message) fields.message += '\n' + n + ': ' + fields[n];
+          else if (n !== 'message' && !/^(utm_|liguria_)/.test(n) && fields.message) fields.message += '\n' + n + ': ' + fields[n];
           delete fields[n]; changed = true;
         } else if (legal && /LEGAL/.test(t)) { legal = null; changed = true; }
       });
