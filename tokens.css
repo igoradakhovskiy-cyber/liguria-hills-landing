@@ -1,23 +1,38 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
   --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
   --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
   --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
-  --color-error: oklch(72% 0.15 27); --color-success: oklch(76% 0.13 150);
+  --color-error: hsl(4 62% 42%); --color-success: hsl(150 45% 30%);
   --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
   --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
-  --color-paper: oklch(26% 0.034 162); --color-paper-2: oklch(22% 0.03 162); --color-paper-3: oklch(31% 0.034 162);
-  --color-ink: oklch(95.5% 0.014 88); --color-ink-2: oklch(89% 0.016 100); --color-muted: oklch(77% 0.022 120);
-  --color-rule: oklch(39% 0.03 162);
-  --color-accent: oklch(82% 0.075 80); --color-accent-2: oklch(87% 0.06 82); --color-accent-deep: oklch(48% 0.07 65); --color-accent-ink: oklch(24% 0.034 162); --color-focus: oklch(86% 0.1 80);
-  --color-gold: oklch(73% 0.095 76); --color-gold-2: oklch(78% 0.085 78); --color-field: oklch(99% 0.004 90);
+  /* palette of the original liguria-hills.it (cream, sea navy, gold), set at the owner's request on 25.11.2026 */
+  --navy: hsl(215 30% 22%); --navy-deep: hsl(216 32% 16%); --navy-3: hsl(215 26% 28%);
+  --cream: hsl(40 33% 97%); --sand: hsl(38 26% 92%); --card: hsl(40 25% 99.5%);
+  --gold: hsl(36 56% 54%); --gold-light: hsl(36 48% 74%); --gold-deep: hsl(36 62% 32%);
+  --color-paper: var(--cream); --color-paper-2: var(--sand); --color-paper-3: var(--card);
+  --color-ink: var(--navy); --color-ink-2: hsl(220 13% 34%); --color-muted: hsl(220 9% 42%);
+  --color-rule: hsl(38 18% 86%);
+  --color-accent: var(--gold); --color-accent-2: hsl(36 58% 62%); --color-accent-deep: var(--gold-deep); --color-accent-ink: var(--navy-deep); --color-focus: var(--gold-deep);
+  --color-gold: var(--gold); --color-gold-2: hsl(36 58% 62%); --color-field: #fff;
   --font-display: "Albert Sans", ui-sans-serif, system-ui, sans-serif; --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
     --radius-card: 0; --radius-input: 12px; --radius-box: 18px; --radius-pill: 999px; --rule-hair: 1px;
   --shadow-card: none;
   --tracking-display: -0.03em; --display-weight: 300;
+}
+
+/* navy blocks, as on the original site: the hero plate, the lifestyle section, the footer, the gallery viewer */
+.hero, #lifestyle, .footer, .lightbox, .tone-navy {
+  color-scheme: dark;
+  --color-paper: var(--navy); --color-paper-2: var(--navy-deep); --color-paper-3: var(--navy-3);
+  --color-ink: var(--cream); --color-ink-2: hsl(40 18% 86%); --color-muted: hsl(215 18% 72%);
+  --color-rule: hsl(215 22% 34%);
+  --color-accent: var(--gold); --color-accent-2: hsl(36 60% 64%); --color-accent-deep: var(--gold-light); --color-accent-ink: var(--navy-deep); --color-focus: var(--gold-light);
+  --scrim: color-mix(in oklab, var(--navy-deep) 78%, transparent);
+  --hair-ink: color-mix(in oklab, var(--cream) 8%, transparent);
 }
 
 /* Ukrainian: Albert Sans has no Cyrillic, so the headings use Onest (same light, open grotesk) */
