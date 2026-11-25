@@ -14,9 +14,10 @@
    * if both are filled in, every lead goes to both.
    * ------------------------------------------------------------- */
   const CONFIG = {
-    hubspotPortalId: '',        // Hub ID, the number in app.hubspot.com/forms/<Hub ID>/...
-    hubspotFormId: '',          // form GUID, the long id in the form editor address
-    hubspotRegion: '',          // 'eu1' if HubSpot opens at app-eu1.hubspot.com, else empty
+    hubspotPortalId: '148817296',                            // Hub ID (Kappa Group, EU data centre)
+    hubspotFormId: '1db535fd-8033-466a-affb-3c2b82c26e9e',   // legacy form "Sito Liguria Hills" with the 13 fields
+    hubspotRegion: 'eu1',       // 'eu1' if HubSpot opens at app-eu1.hubspot.com, else empty
+    hubspotMarketingTypeId: 3031540561, // subscription type of the form's marketing checkbox; the optional consent ticks it
     supabaseUrl: '',            // optional: e.g. https://<project>.supabase.co
     supabaseAnonKey: '',        // the project's public anon key
     thankYouUrl: '',            // optional: e.g. /{lang}/grazie, if ads optimise on that page
@@ -429,7 +430,7 @@
       'Privacy consent: yes. Marketing consent: ' + (p._marketing_consent ? 'yes' : 'no'),
     ].filter(Boolean).join('\n');
   }
-  async function postHubspot(p, consentText) {
+  async function postHubspot(p, consentText, marketingText) {
     const words = p._name.split(/\s+/);
     const fields = { firstname: words[0], lastname: words.slice(1).join(' '), email: p._email, phone: p._phone, message: leadNote(p) };
     // separate contact properties for filters and reports in HubSpot (custom, created by the
@@ -439,6 +440,10 @@
     const q = new URLSearchParams(location.search);
     UTM_KEYS.forEach((k) => { if (q.get(k)) fields[k] = q.get(k).slice(0, 250); });
     let legal = consentText ? { consent: { consentToProcess: true, text: consentText.slice(0, 1000) } } : null;
+    // the optional marketing tick becomes a real subscription in HubSpot (only when ticked)
+    if (legal && p._marketing_consent && CONFIG.hubspotMarketingTypeId && marketingText) {
+      legal.consent.communications = [{ value: true, subscriptionTypeId: Number(CONFIG.hubspotMarketingTypeId), text: marketingText.slice(0, 1000) }];
+    }
     const hutk = readCookie('hubspotutk');
     const hosts = CONFIG.hubspotRegion === 'eu1' ? [HS_HOST.eu1, HS_HOST.na] : [HS_HOST.na, HS_HOST.eu1];
     let host = 0;
@@ -467,7 +472,11 @@
           if (n === 'lastname') fields.firstname = p._name;
           else if (n !== 'message' && !/^(utm_|liguria_)/.test(n) && fields.message) fields.message += '\n' + n + ': ' + fields[n];
           delete fields[n]; changed = true;
-        } else if (legal && /LEGAL/.test(t)) { legal = null; changed = true; }
+        } else if (legal && /LEGAL|CONSENT|SUBSCRIPTION/.test(t)) {
+          // first drop the marketing subscription, then the consent block altogether
+          if (legal.consent && legal.consent.communications) delete legal.consent.communications; else legal = null;
+          changed = true;
+        }
       });
       if (!changed) throw new Error('HubSpot 400 ' + (info.errors || []).map((e) => e.errorType + ': ' + e.message).join('; '));
     }
@@ -480,10 +489,11 @@
   }
   // every configured destination gets the lead; it counts as sent if at least one accepted it
   async function sendLead(p, form) {
-    const label = form.querySelector('input[name="consent"]').closest('label');
-    const consentText = label ? label.textContent.replace(/\s+/g, ' ').replace(/^\*\s*/, '').trim() : '';
+    const labelText = (name) => { const l = form.querySelector('input[name="' + name + '"]'); const lab = l && l.closest('label'); return lab ? lab.textContent.replace(/\s+/g, ' ').replace(/^\*\s*/, '').trim() : ''; };
+    const consentText = labelText('consent');
+    const marketingText = labelText('marketing');
     const jobs = [];
-    if (hubspotOn) jobs.push(postHubspot(p, consentText));
+    if (hubspotOn) jobs.push(postHubspot(p, consentText, marketingText));
     if (supabaseOn) jobs.push(postLead(p));
     const res = await Promise.allSettled(jobs);
     res.filter((r) => r.status === 'rejected').forEach((r) => console.warn('[Liguria Hills] lead not delivered:', r.reason));
