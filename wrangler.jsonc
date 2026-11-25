@@ -1,0 +1,11 @@
+// Cloudflare Workers: the landing is plain static files served from the repository root.
+// The Worker name must match the project name set in the Cloudflare dashboard.
+{
+  "name": "liguria-hills",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  }
+}
